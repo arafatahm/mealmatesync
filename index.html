@@ -2648,16 +2648,37 @@ function renderMembers(){
   });
 }
 function deleteMember(i){
-
-    if(!confirm("Delete this member from current month?")) return;
-
     const members = getMonthMembers(selectedMonth);
+    const member = members[i];
+    if (!member) return;
 
-    members.splice(i,1);
+    const memberName = String(member.name || "");
+    if (!confirm(`Delete ${memberName} and all of their deposit and meal records from ${selectedMonth}? This cannot be undone.`)) return;
+
+    // Remove the member from this month's member list.
+    members.splice(i, 1);
+
+    // Remove this member's meal entries for the selected month.
+    if (data.meals && data.meals[selectedMonth] &&
+        Object.prototype.hasOwnProperty.call(data.meals[selectedMonth], memberName)) {
+        delete data.meals[selectedMonth][memberName];
+    }
+
+    // Remove every deposit record belonging to this member in this month.
+    if (data.deposits && Array.isArray(data.deposits[selectedMonth])) {
+        data.deposits[selectedMonth] = data.deposits[selectedMonth].filter(
+            deposit => String(deposit && deposit.member || "") !== memberName
+        );
+    }
+
+    // Keep the legacy/global member list in sync when it contains this member.
+    if (Array.isArray(data.members)) {
+        data.members = data.members.filter(m => String(m && m.name || "") !== memberName);
+    }
 
     saveData();
-
     refreshAll();
+    toast("Member and their monthly records deleted");
 }
 
 function editMember(index){
@@ -2746,41 +2767,36 @@ amountCell.onclick = function(){
 }
 /* ---------------- Meals ---------------- */
 function renderMealList(){
-    let month = getSelectedMonth();
-
+    const month = getSelectedMonth();
     if(!data.meals[month]) data.meals[month] = {};
 
     const [year, mon] = month.split('-').map(Number);
     const daysInMonth = new Date(year, mon, 0).getDate();
-
     const table = document.getElementById('mealTable');
 
     let header = "<tr><th>Name</th>";
-    for(let d=1; d<=daysInMonth; d++){
-        header += `<th>${d}</th>`;
-    }
+    for(let d=1; d<=daysInMonth; d++) header += `<th>${d}</th>`;
     header += "<th>Total</th></tr>";
 
-    table.innerHTML = header;
-
-    getMonthMembers(selectedMonth).forEach(mem=>{
-
+    // Build all rows off-DOM, then paint the table once to reduce layout/reflow work.
+    const rows = [header];
+    getMonthMembers(month).forEach(mem=>{
         if(!data.meals[month][mem.name]){
             data.meals[month][mem.name] = Array(daysInMonth).fill(0);
         }
 
+        const counts = data.meals[month][mem.name];
         let row = `<tr><td>${mem.name}</td>`;
         let total = 0;
-
-        data.meals[month][mem.name].forEach((count, idx)=>{
+        counts.forEach((count, idx)=>{
             row += `<td contenteditable="true" inputmode="decimal" onfocus="mealFocus(this)" onblur="mealBlur('${month}','${mem.name}',${idx},this)">${count}</td>`;
             total += Number(count);
         });
-
         row += `<td>${total}</td></tr>`;
-        table.innerHTML += row;
+        rows.push(row);
     });
 
+    table.innerHTML = rows.join('');
     saveData();
 }
 
@@ -5966,18 +5982,24 @@ body > .profile-wrapper #profileBtn {
       <h2 style="margin:0;">Meal Mate Sync</h2>
       <button type="button" onclick="closeMealMateSync()" style="width:42px;padding:8px;background:#777;">×</button>
     </div>
-    <p id="mmSyncAccountState" style="margin:12px 0;color:inherit;font-size:14px;">Sign in to sync your data between devices.</p>
+    <p id="mmSyncAccountState" style="margin:12px 0;color:inherit;font-size:14px;">Verify your email when creating an account. Then sign in to sync your data between devices.</p>
     <div id="mmSyncAuthFields">
       <input id="mmSyncEmail" type="email" autocomplete="email" placeholder="Email address" style="margin:7px 0;">
-      <input id="mmSyncPassword" type="password" autocomplete="current-password" placeholder="Password (at least 6 characters)" style="margin:7px 0;">
+      <div class="mm-password-wrap">
+        <input id="mmSyncPassword" type="password" autocomplete="current-password" placeholder="Password (at least 6 characters)" style="margin:7px 0;">
+        <button id="mmPasswordToggle" class="mm-password-toggle" type="button" onclick="toggleMmSyncPassword()" aria-label="Show password" aria-pressed="false" title="Show password">
+          <svg id="mmPasswordEyeIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="mm-eye-slash" d="M3 3 21 21" style="display:none"/></svg>
+        </button>
+      </div>
       <button type="button" onclick="mealMateEmailLogin(false)" style="margin-top:8px;">Login</button>
       <button type="button" onclick="mealMateEmailLogin(true)" style="margin-top:8px;background:linear-gradient(135deg,#0f766e,#0d9488);">Create Account</button>
+      <button type="button" onclick="mealMateForgotPassword()" style="display:block;width:auto;margin:10px auto 0;padding:6px 10px;background:transparent;color:var(--text,#333);border:0;box-shadow:none;font-size:13px;text-decoration:underline;">Forgot Password?</button>
     </div>
     <div id="mmSyncSignedIn" style="display:none;">
       <button type="button" onclick="mealMateSyncNow()">Sync Now</button>
       <button type="button" onclick="mealMateLogout()" style="margin-top:9px;background:#b91c1c;">Logout</button>
     </div>
-    <p style="font-size:12px;line-height:1.5;opacity:.75;margin-top:14px;">Login is only for syncing. Meal Mate continues to work offline without signing in. Use the same email and password on your other device.</p>
+    <p style="font-size:12px;line-height:1.5;opacity:.75;margin-top:14px;">New accounts must verify their email using the link sent to their inbox. Login is only for syncing. Meal Mate continues to work offline without signing in.</p>
     <p id="mmSyncMessage" role="status" style="font-size:13px;margin-top:10px;"></p>
   </div>
 </div>
@@ -6007,6 +6029,14 @@ body > .profile-wrapper #profileBtn {
       notes:JSON.parse(localStorage.getItem(NOTES_KEY)||'[]'),
       calculatorHistory:JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'),
       schemaVersion:1
+    };
+  }
+  // A new account starts with its own empty workspace unless the user
+  // explicitly chooses to copy this device's current data into it.
+  function emptySnapshot(){
+    return {
+      appData:{members:[],monthMembers:{},meals:{},deposits:{},expenss:{},customMealRates:{},selectedMonth:getLocalMonthKey()},
+      notes:[],calculatorHistory:[],schemaVersion:1
     };
   }
   function applySnapshot(snapshot,uid){
@@ -6088,6 +6118,29 @@ body > .profile-wrapper #profileBtn {
     if($('mmSyncSignedIn'))$('mmSyncSignedIn').style.display=signed?'block':'none';
     if($('mmSyncAccountState'))$('mmSyncAccountState').textContent=signed?'Signed in as '+cloudUser.email:'Sign in or create an account to sync your data.';
   }
+  window.mealMateForgotPassword=async function(){
+    if(!auth){message('Firebase could not start. Check your internet connection.',true);return;}
+    const email=$('mmSyncEmail') ? $('mmSyncEmail').value.trim() : '';
+    if(!email){message('First enter your account email address above.',true);if($('mmSyncEmail'))$('mmSyncEmail').focus();return;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){message('Please enter a valid email address.',true);if($('mmSyncEmail'))$('mmSyncEmail').focus();return;}
+    message('Sending password reset link…');
+    try{
+      await auth.sendPasswordResetEmail(email);
+      message('Password reset link sent. Check your email inbox and spam folder.');
+    }catch(e){
+      console.error('Password reset failed:',e);
+      const code=e&&e.code;
+      if(code==='auth/user-not-found')message('No account found with this email address.',true);
+      else if(code==='auth/invalid-email')message('Please enter a valid email address.',true);
+      else if(code==='auth/too-many-requests')message('Too many attempts. Please try again later.',true);
+      else if(code==='auth/network-request-failed')message('Network error. Check your internet connection and try again.',true);
+      else message(e&&e.message?e.message:'Could not send password reset email. Please try again.',true);
+    }
+  };
+  function mealMateVerificationSettings(){
+    const continueUrl=window.location.origin+window.location.pathname;
+    return {url:continueUrl,handleCodeInApp:false};
+  }
   window.mealMateEmailLogin=async function(create){
     if(!auth){message('Firebase could not start. Check your internet connection.',true);return;}
     const email=$('mmSyncEmail').value.trim(),password=$('mmSyncPassword').value;
@@ -6095,9 +6148,36 @@ body > .profile-wrapper #profileBtn {
     if(password.length<6){message('Password must be at least 6 characters.',true);return;}
     message(create?'Creating account…':'Signing in…');
     try{
+      if(create){
+        let credential;
+        try{credential=await auth.createUserWithEmailAndPassword(email,password);}
+        catch(createError){
+          if(createError&&createError.code==='auth/email-already-in-use'){
+            credential=await auth.signInWithEmailAndPassword(email,password);
+            await credential.user.reload();
+            if(credential.user.emailVerified){message('This email is already verified. Please use Login.',true);await auth.signOut();return;}
+          }else throw createError;
+        }
+        await credential.user.sendEmailVerification(mealMateVerificationSettings());
+        await auth.signOut();
+        cloudUser=null;updateAccountUI();
+        message('Verification link sent to '+email+'. Open the email, click Verify Email, then return here and Login.');
+        return;
+      }
       const oldSnapshot=localSnapshot();
-      const credential=create?await auth.createUserWithEmailAndPassword(email,password):await auth.signInWithEmailAndPassword(email,password);
-      cloudUser=credential.user;
+      const credential=await auth.signInWithEmailAndPassword(email,password);
+      const signedUser=credential.user;
+      await signedUser.reload();
+      if(!signedUser.emailVerified){
+        try{
+          await signedUser.sendEmailVerification(mealMateVerificationSettings());
+          message('Your email is not verified yet. A new verification link has been sent. Check your inbox and spam folder.',true);
+        }catch(sendError){
+          message('Please verify your email first. Could not resend the link right now: '+(sendError.message||''),true);
+        }
+        await auth.signOut();cloudUser=null;updateAccountUI();return;
+      }
+      cloudUser=signedUser;
       const ref=db.collection('users').doc(cloudUser.uid);
       const doc=await ref.get();
       if(doc.exists){
@@ -6105,11 +6185,19 @@ body > .profile-wrapper #profileBtn {
         if(useCloud){applySnapshot(doc.data(),cloudUser.uid);message('Cloud data loaded on this device.');}
         else {applySnapshot(oldSnapshot,cloudUser.uid);await writeCloud();}
       }else{
-        applySnapshot(oldSnapshot,cloudUser.uid);
-        await writeCloud();
+        const copyCurrent=confirm('This account has no Meal Mate data yet.\n\nOK = Copy the current device data to this account (replace its empty data).\nCancel = Start this account with completely empty data. Your current device data will remain saved in the offline profile.');
+        if(copyCurrent){applySnapshot(oldSnapshot,cloudUser.uid);await writeCloud();message('Current device data copied to this account.');}
+        else{applySnapshot(emptySnapshot(),cloudUser.uid);await writeCloud();message('New account started with empty data. Previous device data was kept separately.');}
       }
       updateAccountUI();
-    }catch(e){console.error(e);message(e.message||'Login failed.',true);}
+    }catch(e){
+      console.error(e);const code=e&&e.code;
+      if(code==='auth/email-already-in-use')message('This email already has an account. Please Login instead.',true);
+      else if(code==='auth/invalid-email')message('Please enter a valid email address.',true);
+      else if(code==='auth/weak-password')message('Password must be at least 6 characters.',true);
+      else if(code==='auth/too-many-requests')message('Too many attempts. Please try again later.',true);
+      else message(e.message||'Login failed.',true);
+    }
   };
   window.mealMateSyncNow=writeCloud;
   window.mealMateLogout=async function(){
@@ -6131,7 +6219,8 @@ body > .profile-wrapper #profileBtn {
       auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.warn);
       let firstAuthState=true;
       auth.onAuthStateChanged(async user=>{
-        cloudUser=user||null;updateAccountUI();
+        cloudUser=(user&&user.emailVerified)?user:null;updateAccountUI();
+        if(user&&!user.emailVerified)return;
         // Restore cloud data only on the initial page load. Interactive login handles
         // its own local-vs-cloud choice below, avoiding a duplicate overwrite prompt.
         if(user && firstAuthState){
@@ -6142,7 +6231,13 @@ body > .profile-wrapper #profileBtn {
             const doc=await db.collection('users').doc(user.uid).get();
             if(hasPending){syncPending=true;if(navigator.onLine)await writeCloud();else if(typeof updateSyncStatus==='function')updateSyncStatus('Offline — changes waiting to sync');}
             else if(doc.exists){applySnapshot(doc.data(),user.uid);if(typeof updateSyncStatus==='function')updateSyncStatus('Account data loaded');}
-            else await writeCloud();
+            else {
+              // Never auto-upload another account's or the offline profile's data
+              // merely because this account has no cloud document yet.
+              applySnapshot(emptySnapshot(),user.uid);
+              await writeCloud();
+              message('This account was initialized with empty data.');
+            }
           }catch(e){console.warn('Could not load cloud data on auth restore',e);syncPending=true;try{localStorage.setItem(pendingKey(user.uid),'1');}catch(_e){}message('Sync is pending. It will retry when internet is available.',true);}
         }
         firstAuthState=false;
@@ -6680,6 +6775,127 @@ body.dark.mm-color-theme #shareBtn.whatsapp-fab svg path {
              inset 0 1px 3px rgba(0,0,0,.12) !important;
 }
 </style>
+
+
+
+<!-- Meal Mate reliability, modal isolation and performance refinements -->
+<style id="mealmate-member-modal-performance-fix">
+/* Member actions stay hidden until a deliberate long press. */
+#memberList .member-actions {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateY(4px) scale(.98);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+}
+#memberList .member-card.show-actions .member-actions {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateY(0) scale(1);
+}
+#memberList .member-card { -webkit-touch-callout: none; }
+#memberList .member-card.longpress-hint { transform: scale(.99); }
+
+/* Account & Sync: blur and block the entire page behind the modal. */
+#mmSyncModal {
+  background: rgba(8, 9, 12, .48) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(115%) !important;
+  backdrop-filter: blur(13px) saturate(115%) !important;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+#mmSyncModal > div {
+  position: relative;
+  z-index: 1;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+body.mm-sync-modal-open { overflow: hidden !important; }
+body.mm-sync-modal-open > :not(#mmSyncModal) {
+  filter: blur(9px) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* Reduce expensive glass rendering in long, frequently updated lists. */
+#memberList .member-card {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  contain: layout style;
+  transition: transform .12s ease, background-color .12s ease;
+}
+#memberList .member-actions button { transition: opacity .12s ease, transform .12s ease; }
+#mmSyncModal, #mmSyncModal * { -webkit-tap-highlight-color: transparent; }
+</style>
+<script id="mealmate-member-modal-performance-runtime">
+(function () {
+  function bindMemberCardDismissal() {
+    const list = document.getElementById('memberList');
+    if (!list || list.dataset.mmDismissBound === '1') return;
+    list.dataset.mmDismissBound = '1';
+
+    // Starting a press on another card closes the previously opened actions.
+    list.addEventListener('pointerdown', function (event) {
+      const current = event.target.closest('.member-card');
+      list.querySelectorAll('.member-card.show-actions').forEach(function (card) {
+        if (card !== current) card.classList.remove('show-actions');
+      });
+    }, true);
+
+    // A tap on blank space inside the member list closes any open actions.
+    list.addEventListener('click', function (event) {
+      if (!event.target.closest('.member-card')) {
+        list.querySelectorAll('.member-card.show-actions').forEach(card => card.classList.remove('show-actions'));
+      }
+    });
+  }
+
+  function bindSyncModal() {
+    const modal = document.getElementById('mmSyncModal');
+    if (!modal || modal.dataset.mmIsolationBound === '1') return;
+    modal.dataset.mmIsolationBound = '1';
+    const panel = modal.firstElementChild;
+    if (panel) panel.addEventListener('click', event => event.stopPropagation());
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) window.closeMealMateSync();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && modal.style.display === 'flex') window.closeMealMateSync();
+    });
+
+    const originalOpen = window.openMealMateSync;
+    window.openMealMateSync = function () {
+      if (typeof originalOpen === 'function') originalOpen();
+      modal.style.display = 'flex';
+      document.body.classList.add('mm-sync-modal-open');
+      const shield = document.getElementById('profileMenuOutsideShield');
+      if (shield) shield.style.display = 'none';
+      const menu = document.getElementById('profileMenu');
+      if (menu) menu.classList.remove('active', 'mm-force-open');
+    };
+
+    const originalClose = window.closeMealMateSync;
+    window.closeMealMateSync = function () {
+      if (typeof originalClose === 'function') originalClose();
+      modal.style.display = 'none';
+      document.body.classList.remove('mm-sync-modal-open');
+    };
+  }
+
+  function init() {
+    bindMemberCardDismissal();
+    bindSyncModal();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+  window.addEventListener('pageshow', init);
+})();
+</script>
 
 </html>
 <style id="mealmate-dashboard-mono-and-menu-final-fix">
@@ -7220,4 +7436,46 @@ body.mm-mono-theme #note svg { accent-color:#777d85; }
   else lowerMenuButton();
   window.addEventListener('pageshow',lowerMenuButton);
 })();
+</script>
+
+
+<style id="mealmate-hide-meal-list-scrollbar-final">
+/* Keep Meal List horizontal scrolling, but never display its scrollbar. */
+#meallist > div {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  -webkit-overflow-scrolling: touch;
+}
+#meallist > div::-webkit-scrollbar,
+#meallist > div::-webkit-scrollbar-track,
+#meallist > div::-webkit-scrollbar-thumb {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+</style>
+
+
+<style id="mm-password-visibility-style">
+.mm-password-wrap{display:flex;align-items:center;gap:8px;width:100%;}
+.mm-password-wrap input{flex:1;min-width:0;width:0;box-sizing:border-box;}
+.mm-password-toggle{flex:0 0 44px!important;width:44px!important;height:44px!important;min-width:44px;padding:9px!important;margin:7px 0!important;display:flex!important;align-items:center!important;justify-content:center!important;background:var(--text,#222)!important;color:var(--white,#fff)!important;border:1px solid var(--border,rgba(128,128,128,.3))!important;border-radius:12px!important;}
+.mm-password-toggle svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+</style>
+<script id="mm-password-visibility-runtime">
+function toggleMmSyncPassword(){
+  const input=document.getElementById('mmSyncPassword');
+  const button=document.getElementById('mmPasswordToggle');
+  const slash=document.querySelector('#mmPasswordEyeIcon .mm-eye-slash');
+  if(!input||!button)return;
+  const show=input.type==='password';
+  input.type=show?'text':'password';
+  button.setAttribute('aria-label',show?'Hide password':'Show password');
+  button.setAttribute('title',show?'Hide password':'Show password');
+  button.setAttribute('aria-pressed',String(show));
+  if(slash)slash.style.display=show?'block':'none';
+}
 </script>
