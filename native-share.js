@@ -11,12 +11,22 @@ function ensureNativePlatform() {
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
+    if (!(blob instanceof Blob)) {
+      reject(new Error('Invalid report image.'));
+      return;
+    }
+
     const reader = new FileReader();
 
     reader.onload = () => {
       const result = String(reader.result || '');
       const commaIndex = result.indexOf(',');
-      resolve(commaIndex >= 0 ? result.substring(commaIndex + 1) : result);
+
+      resolve(
+        commaIndex >= 0
+          ? result.substring(commaIndex + 1)
+          : result
+      );
     };
 
     reader.onerror = () => {
@@ -27,7 +37,7 @@ function blobToBase64(blob) {
   });
 }
 
-// Share as Text
+// SHARE TEXT
 window.mealMateNativeShareText = async function (title, text) {
   ensureNativePlatform();
 
@@ -38,13 +48,13 @@ window.mealMateNativeShareText = async function (title, text) {
   });
 };
 
-// Share as Picture
-window.mealMateNativeSharePicture = async function (blob, fileName, title) {
+// SHARE PICTURE
+window.mealMateNativeSharePicture = async function (
+  blob,
+  fileName,
+  title
+) {
   ensureNativePlatform();
-
-  if (!(blob instanceof Blob) || blob.size === 0) {
-    throw new Error('Report image is empty.');
-  }
 
   const safeName = (fileName || 'Meal-Mate-Report.png')
     .replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -58,16 +68,14 @@ window.mealMateNativeSharePicture = async function (blob, fileName, title) {
     recursive: true
   });
 
-  const fileUri = saved.uri;
-
-  if (!fileUri) {
-    throw new Error('Could not create image file URI.');
+  if (!saved.uri) {
+    throw new Error('Could not create report image file.');
   }
 
   return Share.share({
     title: title || 'Meal Mate Report',
     text: title || 'Meal Mate Report',
-    files: [fileUri],
+    files: [saved.uri],
     dialogTitle: 'Share with'
   });
 };
