@@ -3197,8 +3197,23 @@ async function shareReportAsText() {
     });
 
     textMessage += '-----------------------------------\n```';
-    // Use the phone's native share sheet so the user can choose any
-    // installed app (WhatsApp, Messenger, Telegram, Gmail, Bluetooth, etc.).
+    // Installed Capacitor APK: use Android's native share sheet.
+    if (typeof window.mealMateNativeShareText === 'function') {
+        try {
+            await window.mealMateNativeShareText(
+                `Meal Report (${monthName})`,
+                textMessage
+            );
+            return;
+        } catch (error) {
+            if (error && error.name === 'AbortError') return;
+            console.error('Android text sharing failed:', error);
+            alert('Could not open the Android share menu. Please try again.');
+            return;
+        }
+    }
+
+    // Chrome/browser: keep the existing Web Share behavior.
     if (navigator.share) {
         try {
             await navigator.share({
@@ -3207,13 +3222,12 @@ async function shareReportAsText() {
             });
             return;
         } catch (error) {
-            // Closing the share sheet is not an error that needs a fallback.
             if (error && error.name === 'AbortError') return;
-            console.warn('Native sharing was unavailable:', error);
+            console.warn('Browser sharing was unavailable:', error);
         }
     }
 
-    // Fallback for browsers that do not support the native share sheet.
+    // Fallback for browsers without Web Share support.
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
     window.open(whatsappUrl, '_blank');
 }
@@ -3375,14 +3389,11 @@ async function shareReportAsPicture() {
         const imageFile = new File([blob], `Meal-Report-${monthInput || 'report'}.png`, { type: 'image/png' });
         const title = `Meal Report (${monthInput || ''})`;
 
-        // Capacitor APK: use the native Android Share plugin.
-        // Chrome: retain the existing Web Share API behavior.
-        if (window.Capacitor && window.Capacitor.isNativePlatform &&
-            window.Capacitor.isNativePlatform() &&
-            typeof window.mealMateNativeShare === 'function') {
-            await window.mealMateNativeShare(blob, imageFile.name, title);
-        } else if (navigator.share &&
-                   (!navigator.canShare || navigator.canShare({ files: [imageFile] }))) {
+        // Installed Capacitor APK: share the PNG through Android's native chooser.
+        if (typeof window.mealMateNativeSharePicture === 'function') {
+            await window.mealMateNativeSharePicture(blob, imageFile.name, title);
+        } else if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [imageFile] }))) {
+            // Chrome/browser: keep the existing Web Share behavior.
             await navigator.share({ title, text: title, files: [imageFile] });
         } else {
             const url = URL.createObjectURL(blob);
@@ -6143,7 +6154,6 @@ body > .profile-wrapper #profileBtn {
 })();
 </script>
 
-  <script type="module" src="./native-share.js"></script>
 </body>
 
 <style id="mealmate-iphone-calculator-look">
@@ -7212,3 +7222,5 @@ body.mm-mono-theme #note svg { accent-color:#777d85; }
   window.addEventListener('pageshow',lowerMenuButton);
 })();
 </script>
+
+<script type="module" src="./native-share.js"></script>
