@@ -32,16 +32,40 @@ jobs:
       - name: Prepare Meal Mate
         run: |
           npm init -y
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/share@6 @capacitor/filesystem@6 @capawesome/capacitor-live-update@6-lts esbuild
+
+          npm install \
+            @capacitor/core@6 \
+            @capacitor/cli@6 \
+            @capacitor/android@6 \
+            @capacitor/share@6 \
+            @capacitor/filesystem@6 \
+            @capawesome/capacitor-live-update@6-lts \
+            esbuild
 
           mkdir -p www
           cp index.html www/index.html
 
           cp native-share.js native-share.entry.js
-          npx esbuild native-share.entry.js --bundle --format=esm --platform=browser --outfile=www/native-share.js
 
-          sed "s/__MEALMATE_BUILD_VERSION__/$GITHUB_SHA/g" native-live-update.entry.js > native-live-update.build.js
-          npx esbuild native-live-update.build.js --bundle --format=esm --platform=browser --outfile=www/native-live-update.js
+          npx esbuild native-share.entry.js \
+            --bundle \
+            --format=esm \
+            --platform=browser \
+            --outfile=www/native-share.js
+
+          sed "s/__MEALMATE_BUILD_VERSION__/$GITHUB_SHA/g" \
+            native-live-update.entry.js > native-live-update.build.js
+
+          npx esbuild native-live-update.build.js \
+            --bundle \
+            --format=esm \
+            --platform=browser \
+            --outfile=www/native-live-update.js
+
+          test -s www/native-share.js
+          test -s www/native-live-update.js
+
+          grep -q 'native-share.js' www/index.html
 
           cat > capacitor.config.json <<'EOF'
           {
@@ -56,7 +80,10 @@ jobs:
           }
           EOF
 
-          npx cap add android
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
           npx cap sync android
 
       - name: Build APK
@@ -68,8 +95,11 @@ jobs:
       - name: Create Update ZIP
         run: |
           mkdir -p update-dist
+
           (cd www && zip -qr ../update-dist/meal-mate-update.zip .)
-          printf '{"bundleId":"%s","url":"https://raw.githubusercontent.com/arafatahm/mealmatesync/gh-pages/meal-mate-update.zip?v=%s"}\n' "$GITHUB_SHA" "$GITHUB_SHA" > update-dist/latest.json
+
+          printf '{"bundleId":"%s","url":"https://raw.githubusercontent.com/arafatahm/mealmatesync/gh-pages/meal-mate-update.zip?v=%s"}\n' \
+            "$GITHUB_SHA" "$GITHUB_SHA" > update-dist/latest.json
 
       - name: Publish Update Files
         uses: peaceiris/actions-gh-pages@v4
@@ -84,3 +114,4 @@ jobs:
         with:
           name: Meal-Mate-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          
