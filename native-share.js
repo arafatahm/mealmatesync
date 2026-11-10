@@ -1,6 +1,13 @@
+
 import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+
+function ensureNativePlatform() {
+  if (!Capacitor.isNativePlatform()) {
+    throw new Error('Native sharing is available only in the installed app.');
+  }
+}
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -20,17 +27,28 @@ function blobToBase64(blob) {
   });
 }
 
-window.Capacitor = Capacitor;
+// Share as Text
+window.mealMateNativeShareText = async function (title, text) {
+  ensureNativePlatform();
 
-window.mealMateNativeShare = async function (blob, fileName, title) {
-  if (!Capacitor.isNativePlatform()) {
-    throw new Error('Native sharing is available only in the installed app.');
-  }
+  return Share.share({
+    title: title || 'Meal Mate Report',
+    text: String(text || ''),
+    dialogTitle: 'Share Meal Mate Report'
+  });
+};
+
+// Share as Picture
+window.mealMateNativeSharePicture = async function (blob, fileName, title) {
+  ensureNativePlatform();
+
+  const safeName = (fileName || 'Meal-Mate-Report.png')
+    .replace(/[^a-zA-Z0-9._-]/g, '_');
 
   const base64 = await blobToBase64(blob);
 
   const saved = await Filesystem.writeFile({
-    path: fileName || 'meal-mate-report.png',
+    path: safeName,
     data: base64,
     directory: Directory.Cache,
     recursive: true
@@ -40,7 +58,7 @@ window.mealMateNativeShare = async function (blob, fileName, title) {
 
   if (!fileUri) {
     const result = await Filesystem.getUri({
-      path: fileName || 'meal-mate-report.png',
+      path: safeName,
       directory: Directory.Cache
     });
     fileUri = result.uri;
