@@ -21,12 +21,7 @@ function blobToBase64(blob) {
     reader.onload = () => {
       const result = String(reader.result || '');
       const commaIndex = result.indexOf(',');
-
-      resolve(
-        commaIndex >= 0
-          ? result.substring(commaIndex + 1)
-          : result
-      );
+      resolve(commaIndex >= 0 ? result.substring(commaIndex + 1) : result);
     };
 
     reader.onerror = () => {
@@ -37,7 +32,6 @@ function blobToBase64(blob) {
   });
 }
 
-// SHARE TEXT
 window.mealMateNativeShareText = async function (title, text) {
   ensureNativePlatform();
 
@@ -48,12 +42,7 @@ window.mealMateNativeShareText = async function (title, text) {
   });
 };
 
-// SHARE PICTURE
-window.mealMateNativeSharePicture = async function (
-  blob,
-  fileName,
-  title
-) {
+window.mealMateNativeSharePicture = async function (blob, fileName, title) {
   ensureNativePlatform();
 
   const safeName = (fileName || 'Meal-Mate-Report.png')
