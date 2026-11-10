@@ -3375,7 +3375,14 @@ async function shareReportAsPicture() {
         const imageFile = new File([blob], `Meal-Report-${monthInput || 'report'}.png`, { type: 'image/png' });
         const title = `Meal Report (${monthInput || ''})`;
 
-        if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [imageFile] }))) {
+        // Capacitor APK: use the native Android Share plugin.
+        // Chrome: retain the existing Web Share API behavior.
+        if (window.Capacitor && window.Capacitor.isNativePlatform &&
+            window.Capacitor.isNativePlatform() &&
+            typeof window.mealMateNativeShare === 'function') {
+            await window.mealMateNativeShare(blob, imageFile.name, title);
+        } else if (navigator.share &&
+                   (!navigator.canShare || navigator.canShare({ files: [imageFile] }))) {
             await navigator.share({ title, text: title, files: [imageFile] });
         } else {
             const url = URL.createObjectURL(blob);
@@ -6136,6 +6143,7 @@ body > .profile-wrapper #profileBtn {
 })();
 </script>
 
+  <script type="module" src="./native-share.js"></script>
 </body>
 
 <style id="mealmate-iphone-calculator-look">
