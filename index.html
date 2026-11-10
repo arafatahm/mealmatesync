@@ -2389,6 +2389,11 @@ async function saveData() {
     uid: user.uid
   };
 
+  // Keep the active profile ID stable across app restarts, including offline launches.
+  try {
+    localStorage.setItem("mealmate_active_uid", user.uid);
+  } catch (error) {}
+
   // Save locally first, so the app remains usable without internet.
   try {
     localStorage.setItem("mealmate_user_" + user.uid, JSON.stringify(payload));
@@ -3531,12 +3536,25 @@ function toggleShareButton(currentPageId) {
     <script>
 (function () {
   function startMealMateWithoutLogin() {
-    let uid = localStorage.getItem("mealmate_offline_uid");
-    if (!uid) {
-      uid = "local-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-      localStorage.setItem("mealmate_offline_uid", uid);
+    // Create/reuse the device profile, but restore the last active profile first.
+    // This matters when the last-used profile was a signed-in Firebase account:
+    // its data is stored under that account UID and must remain available offline.
+    let offlineUid = localStorage.getItem("mealmate_offline_uid");
+    if (!offlineUid) {
+      offlineUid = "local-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem("mealmate_offline_uid", offlineUid);
     }
-    window.currentUser = { uid: uid, displayName: "Meal Mate User", isOffline: true };
+
+    let uid = localStorage.getItem("mealmate_active_uid") || offlineUid;
+    if (!uid) uid = offlineUid;
+    localStorage.setItem("mealmate_active_uid", uid);
+
+    window.currentUser = {
+      uid: uid,
+      displayName: "Meal Mate User",
+      isOffline: uid === offlineUid
+    };
+
     const shell = document.getElementById("appShell");
     if (shell) shell.style.display = "block";
     if (typeof window.loadData === "function") window.loadData().catch(console.error);
@@ -6104,6 +6122,7 @@ body > .profile-wrapper #profileBtn {
     const app=snapshot && snapshot.appData ? snapshot.appData : {};
     const payload={...app,uid};
     localStorage.setItem('mealmate_user_'+uid,JSON.stringify(payload));
+    localStorage.setItem('mealmate_active_uid',uid);
     localStorage.setItem(NOTES_KEY,JSON.stringify(Array.isArray(snapshot.notes)?snapshot.notes:[]));
     localStorage.setItem(HISTORY_KEY,JSON.stringify(Array.isArray(snapshot.calculatorHistory)?snapshot.calculatorHistory:[]));
     window.currentUser={uid,email:cloudUser.email,displayName:cloudUser.email,isOffline:false};
@@ -6264,6 +6283,7 @@ body > .profile-wrapper #profileBtn {
   window.mealMateLogout=async function(){
     try{await auth.signOut();cloudUser=null;updateAccountUI();message('Logged out. This device data remains available offline.');
       let uid=localStorage.getItem('mealmate_offline_uid');if(!uid){uid='local-'+Date.now().toString(36);localStorage.setItem('mealmate_offline_uid',uid);}
+      localStorage.setItem('mealmate_active_uid',uid);
       window.currentUser={uid,displayName:'Meal Mate User',isOffline:true};
       await saveData();
     }catch(e){message(e.message||'Logout failed.',true);}
@@ -6281,6 +6301,19 @@ body > .profile-wrapper #profileBtn {
       let firstAuthState=true;
       auth.onAuthStateChanged(async user=>{
         cloudUser=(user&&user.emailVerified)?user:null;updateAccountUI();
+
+        // Restore the signed-in account's LOCAL profile before attempting any
+        // Firestore request. This keeps that account's saved data visible offline.
+        if(user && user.emailVerified){
+          try{
+            localStorage.setItem('mealmate_active_uid',user.uid);
+            window.currentUser={uid:user.uid,email:user.email||'',displayName:user.email||'Meal Mate User',isOffline:false};
+            if(typeof loadData==='function') await loadData();
+          }catch(localRestoreError){
+            console.warn('Could not restore the signed-in local profile:',localRestoreError);
+          }
+        }
+
         if(user&&!user.emailVerified)return;
         // Restore cloud data only on the initial page load. Interactive login handles
         // its own local-vs-cloud choice below, avoiding a duplicate overwrite prompt.
