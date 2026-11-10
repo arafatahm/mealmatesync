@@ -1,3 +1,4 @@
+
 name: Build Meal Mate APK
 
 on:
@@ -68,7 +69,7 @@ jobs:
         run: |
           mkdir -p update-dist
           (cd www && zip -qr ../update-dist/meal-mate-update.zip .)
-          printf '{"bundleId":"%s","url":"https://raw.githubusercontent.com/arafatahm/mealmatesync/gh-pages/meal-mate-update.zip"}\n' "$GITHUB_SHA" > update-dist/latest.json
+          printf '{"bundleId":"%s","url":"https://raw.githubusercontent.com/arafatahm/mealmatesync/gh-pages/meal-mate-update.zip?v=%s"}\n' "$GITHUB_SHA" "$GITHUB_SHA" > update-dist/latest.json
 
       - name: Publish Update Files
         uses: peaceiris/actions-gh-pages@v4
