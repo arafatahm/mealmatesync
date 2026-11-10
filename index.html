@@ -3197,23 +3197,16 @@ async function shareReportAsText() {
     });
 
     textMessage += '-----------------------------------\n```';
-    // Installed Capacitor APK: use Android's native share sheet.
+    // Prefer Capacitor's native Android share chooser in the installed APK.
     if (typeof window.mealMateNativeShareText === 'function') {
-        try {
-            await window.mealMateNativeShareText(
-                `Meal Report (${monthName})`,
-                textMessage
-            );
-            return;
-        } catch (error) {
-            if (error && error.name === 'AbortError') return;
-            console.error('Android text sharing failed:', error);
-            alert('Could not open the Android share menu. Please try again.');
-            return;
-        }
+        await window.mealMateNativeShareText(
+            `Meal Report (${monthName})`,
+            textMessage
+        );
+        return;
     }
 
-    // Chrome/browser: keep the existing Web Share behavior.
+    // Browser fallback when the native bridge is unavailable.
     if (navigator.share) {
         try {
             await navigator.share({
@@ -3227,7 +3220,6 @@ async function shareReportAsText() {
         }
     }
 
-    // Fallback for browsers without Web Share support.
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
     window.open(whatsappUrl, '_blank');
 }
@@ -3389,11 +3381,17 @@ async function shareReportAsPicture() {
         const imageFile = new File([blob], `Meal-Report-${monthInput || 'report'}.png`, { type: 'image/png' });
         const title = `Meal Report (${monthInput || ''})`;
 
-        // Installed Capacitor APK: share the PNG through Android's native chooser.
+        // Prefer Capacitor's native file-sharing bridge in the installed APK.
         if (typeof window.mealMateNativeSharePicture === 'function') {
-            await window.mealMateNativeSharePicture(blob, imageFile.name, title);
-        } else if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [imageFile] }))) {
-            // Chrome/browser: keep the existing Web Share behavior.
+            await window.mealMateNativeSharePicture(
+                blob,
+                imageFile.name,
+                title
+            );
+        } else if (
+            navigator.share &&
+            (!navigator.canShare || navigator.canShare({ files: [imageFile] }))
+        ) {
             await navigator.share({ title, text: title, files: [imageFile] });
         } else {
             const url = URL.createObjectURL(blob);
@@ -3404,7 +3402,7 @@ async function shareReportAsPicture() {
             link.click();
             link.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1500);
-            alert('Direct picture sharing is not supported by this browser. The report image has been downloaded. You can attach it in your preferred app.');
+            alert('Picture downloaded. Please attach it in your preferred app.');
         }
     } catch (error) {
         if (!error || error.name !== 'AbortError') {
@@ -6154,6 +6152,7 @@ body > .profile-wrapper #profileBtn {
 })();
 </script>
 
+<script type="module" src="./native-share.js"></script>
 </body>
 
 <style id="mealmate-iphone-calculator-look">
@@ -7222,5 +7221,3 @@ body.mm-mono-theme #note svg { accent-color:#777d85; }
   window.addEventListener('pageshow',lowerMenuButton);
 })();
 </script>
-<script type="module" src="./native-share.js"></script>
-<script type="module" src="./native-live-update.js"></script>
