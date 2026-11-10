@@ -34,13 +34,17 @@ window.mealMateNativeShareText = async function (title, text) {
   return Share.share({
     title: title || 'Meal Mate Report',
     text: String(text || ''),
-    dialogTitle: 'Share Meal Mate Report'
+    dialogTitle: 'Share with'
   });
 };
 
 // Share as Picture
 window.mealMateNativeSharePicture = async function (blob, fileName, title) {
   ensureNativePlatform();
+
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new Error('Report image is empty.');
+  }
 
   const safeName = (fileName || 'Meal-Mate-Report.png')
     .replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -54,20 +58,16 @@ window.mealMateNativeSharePicture = async function (blob, fileName, title) {
     recursive: true
   });
 
-  let fileUri = saved.uri;
+  const fileUri = saved.uri;
 
   if (!fileUri) {
-    const result = await Filesystem.getUri({
-      path: safeName,
-      directory: Directory.Cache
-    });
-    fileUri = result.uri;
+    throw new Error('Could not create image file URI.');
   }
 
   return Share.share({
     title: title || 'Meal Mate Report',
     text: title || 'Meal Mate Report',
     files: [fileUri],
-    dialogTitle: 'Share Meal Mate Report'
+    dialogTitle: 'Share with'
   });
 };
