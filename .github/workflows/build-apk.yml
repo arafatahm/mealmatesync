@@ -30,8 +30,12 @@ jobs:
         run: |
           npm init -y
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          mkdir www
+          npm install --save-dev @capacitor/assets
+
+          mkdir -p www resources
           cp index.html www/index.html
+          cp meal-mate-icon-only.png resources/icon.png
+
           cat > capacitor.config.json <<'EOF'
           {
             "appId": "com.mealmate.app",
@@ -39,8 +43,10 @@ jobs:
             "webDir": "www"
           }
           EOF
+
           npx cap add android
           npx cap sync android
+          npx capacitor-assets generate --android
 
       - name: Build APK
         run: |
@@ -53,4 +59,3 @@ jobs:
         with:
           name: Meal-Mate-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          
