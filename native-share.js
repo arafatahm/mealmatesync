@@ -21,7 +21,13 @@ function blobToBase64(blob) {
     reader.onload = () => {
       const result = String(reader.result || '');
       const commaIndex = result.indexOf(',');
-      resolve(commaIndex >= 0 ? result.substring(commaIndex + 1) : result);
+
+      if (commaIndex < 0) {
+        reject(new Error('Image conversion failed.'));
+        return;
+      }
+
+      resolve(result.substring(commaIndex + 1));
     };
 
     reader.onerror = () => {
@@ -32,21 +38,31 @@ function blobToBase64(blob) {
   });
 }
 
+// TEXT SHARE
 window.mealMateNativeShareText = async function (title, text) {
   ensureNativePlatform();
 
-  return Share.share({
+  return await Share.share({
     title: title || 'Meal Mate Report',
     text: String(text || ''),
     dialogTitle: 'Share with'
   });
 };
 
-window.mealMateNativeSharePicture = async function (blob, fileName, title) {
+// PICTURE SHARE
+window.mealMateNativeSharePicture = async function (
+  blob,
+  fileName,
+  title
+) {
   ensureNativePlatform();
 
-  const safeName = (fileName || 'Meal-Mate-Report.png')
-    .replace(/[^a-zA-Z0-9._-]/g, '_');
+  const cleanName = String(fileName || 'Meal-Mate-Report.png')
+    .replace(/[^a-zA-Z0-9.-]/g, '');
+
+  const safeName =
+    (cleanName || 'Meal-Mate-Report.png').replace(/\.png$/i, '') +
+    '-' + Date.now() + '.png';
 
   const base64 = await blobToBase64(blob);
 
@@ -61,10 +77,12 @@ window.mealMateNativeSharePicture = async function (blob, fileName, title) {
     throw new Error('Could not create report image file.');
   }
 
-  return Share.share({
+  return await Share.share({
     title: title || 'Meal Mate Report',
     text: title || 'Meal Mate Report',
     files: [saved.uri],
     dialogTitle: 'Share with'
   });
 };
+
+console.log('Meal Mate Native Share Loaded');
