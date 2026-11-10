@@ -39,7 +39,7 @@ jobs:
             @capacitor/android@6 \
             @capacitor/share@6 \
             @capacitor/filesystem@6 \
-            @capawesome/capacitor-live-update@6-lts \
+            @capawesome/capacitor-live-update@v6-lts \
             esbuild
 
           mkdir -p www
