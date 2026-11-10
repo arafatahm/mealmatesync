@@ -5979,8 +5979,10 @@ body > .profile-wrapper #profileBtn {
     measurementId: "G-2M4WQ3KMXD"
   };
   let auth=null, db=null, cloudUser=null, syncTimer=null, syncing=false;
+  let syncPending=false, syncAgain=false, retryDelay=5000;
   const NOTES_KEY='mealmate_saved_notes_v1';
   const HISTORY_KEY='mealmate_calculator_history_v1';
+  const pendingKey=uid=>'mealmate_cloud_sync_pending_'+uid;
   const $=id=>document.getElementById(id);
   function message(text,isError){const el=$('mmSyncMessage');if(el){el.textContent=text;el.style.color=isError?'#dc2626':'#059669';}}
   function localSnapshot(){
@@ -6005,23 +6007,59 @@ body > .profile-wrapper #profileBtn {
     if(typeof renderNotes==='function')renderNotes();
   }
   async function writeCloud(){
-    if(!cloudUser||!db||syncing)return;
+    if(!cloudUser||!db){syncPending=true;return false;}
+    if(!navigator.onLine){syncPending=true;localStorage.setItem(pendingKey(cloudUser.uid),'1');if(typeof updateSyncStatus==='function')updateSyncStatus('Waiting for internet to sync');return false;}
+    if(syncing){syncPending=true;syncAgain=true;return false;}
     syncing=true;
+    syncPending=false;
     try{
       const snap=localSnapshot();
       await db.collection('users').doc(cloudUser.uid).set({
         ...snap, email:cloudUser.email||'', updatedAt:firebase.firestore.FieldValue.serverTimestamp()
       });
+      localStorage.removeItem(pendingKey(cloudUser.uid));
+      retryDelay=5000;
       if(typeof updateSyncStatus==='function')updateSyncStatus('Synced to your account');
       message('Sync successful. Your data is saved online and on this phone.');
-    }catch(e){console.error('Meal Mate cloud sync failed',e);message('Sync failed: '+(e.message||'Check internet and Firestore rules.'),true);}
-    finally{syncing=false;}
+      return true;
+    }catch(e){
+      console.error('Meal Mate cloud sync failed',e);
+      syncPending=true;
+      localStorage.setItem(pendingKey(cloudUser.uid),'1');
+      message('Sync pending. It will retry automatically when connection is available.',true);
+      if(typeof updateSyncStatus==='function')updateSyncStatus('Sync pending');
+      // Retry transient network/server failures with a capped delay.
+      clearTimeout(syncTimer);
+      syncTimer=setTimeout(()=>{if(cloudUser&&navigator.onLine)writeCloud();},retryDelay);
+      retryDelay=Math.min(retryDelay*2,60000);
+      return false;
+    }finally{
+      syncing=false;
+      if(syncAgain&&cloudUser&&navigator.onLine){syncAgain=false;clearTimeout(syncTimer);syncTimer=setTimeout(writeCloud,800);}
+    }
   }
   window.mealMateQueueCloudSync=function(){
     if(!cloudUser)return;
+    syncPending=true;
+    if(syncing)syncAgain=true;
+    try{localStorage.setItem(pendingKey(cloudUser.uid),'1');}catch(e){}
     clearTimeout(syncTimer);
-    syncTimer=setTimeout(writeCloud,1200);
+    syncTimer=setTimeout(()=>{if(navigator.onLine)writeCloud();else if(typeof updateSyncStatus==='function')updateSyncStatus('Waiting for internet to sync');},1200);
   };
+  // When connectivity returns, immediately retry any changes saved locally while offline.
+  window.addEventListener('online',function(){
+    if(cloudUser&&(syncPending||localStorage.getItem(pendingKey(cloudUser.uid))==='1')){
+      clearTimeout(syncTimer);syncTimer=setTimeout(writeCloud,300);
+    }
+  });
+  window.addEventListener('offline',function(){
+    if(cloudUser){syncPending=true;try{localStorage.setItem(pendingKey(cloudUser.uid),'1');}catch(e){}if(typeof updateSyncStatus==='function')updateSyncStatus('Offline — changes saved on this phone');}
+  });
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'&&navigator.onLine&&cloudUser&&(syncPending||localStorage.getItem(pendingKey(cloudUser.uid))==='1')){
+      clearTimeout(syncTimer);syncTimer=setTimeout(writeCloud,300);
+    }
+  });
   window.openMealMateSync=function(){
     const modal=$('mmSyncModal');if(modal)modal.style.display='flex';
     updateAccountUI();
@@ -6082,10 +6120,14 @@ body > .profile-wrapper #profileBtn {
         // its own local-vs-cloud choice below, avoiding a duplicate overwrite prompt.
         if(user && firstAuthState){
           try{
+            // If this device has offline edits waiting, upload them instead of
+            // replacing them with an older cloud copy on page reload.
+            const hasPending=localStorage.getItem(pendingKey(user.uid))==='1';
             const doc=await db.collection('users').doc(user.uid).get();
-            if(doc.exists){applySnapshot(doc.data(),user.uid);if(typeof updateSyncStatus==='function')updateSyncStatus('Account data loaded');}
+            if(hasPending){syncPending=true;if(navigator.onLine)await writeCloud();else if(typeof updateSyncStatus==='function')updateSyncStatus('Offline — changes waiting to sync');}
+            else if(doc.exists){applySnapshot(doc.data(),user.uid);if(typeof updateSyncStatus==='function')updateSyncStatus('Account data loaded');}
             else await writeCloud();
-          }catch(e){console.warn('Could not load cloud data on auth restore',e);message('Signed in, but cloud data could not load. Check Firestore rules.',true);}
+          }catch(e){console.warn('Could not load cloud data on auth restore',e);syncPending=true;try{localStorage.setItem(pendingKey(user.uid),'1');}catch(_e){}message('Sync is pending. It will retry when internet is available.',true);}
         }
         firstAuthState=false;
       });
